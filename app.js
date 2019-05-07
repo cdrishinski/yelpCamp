@@ -2,9 +2,12 @@ const express    = require("express"),
       app        = express(),
       mongoose   = require("mongoose"),
       bodyParser = require("body-parser"),
+      passport   = require("passport"),
+      LocalStrategy = require("passport-local"),
       //SCHEMA SETUP - imported from campground.js
       Campground = require("./models/campground"),
       Comment = require("./models/comment"),
+      User = require('./models/user'),
       //seed the db with sample data
       seedDB = require("./seeds");
       
@@ -16,16 +19,33 @@ app.set("view engine", "ejs");
 app.use(express.static(__dirname + "/public"))
 seedDB();     
 
+//PASSPORT CONFIGURATION
 
+app.use(require("express-session")({
+    secret: "rocky mountains",
+    resave: false,
+    saveUninitialized: false
+}));
 
+app.use(passport.initialize());
+app.use(passport.session());
+passport.use(new LocalStrategy(User.authenticate()));
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+app.use((req,res, next) =>{
+   res.locals.currentUser = req.user;
+   next();
+});
+
+//HOME ROUTE
 app.get("/", (req, res) => {
    res.render("landing");
 });
 
 //INDEX ROUTE
 app.get("/campgrounds", (req, res) =>{
-    //get all campgrounds from DB
     
+    //get all campgrounds from DB
     Campground.find({}, (err, allCampgrounds) =>{
         if(err){
             console.log(err);
@@ -78,7 +98,7 @@ app.get("/campgrounds/:id", (req, res) => {
 //COMMENTS ROUTE
 //================
 
-app.get("/campgrounds/:id/comments/new", (req, res) =>{
+app.get("/campgrounds/:id/comments/new",isLoggedIn, (req, res) =>{
    Campground.findById(req.params.id, (err, campground)=>{
        if(err){
            console.log(err);
@@ -89,7 +109,7 @@ app.get("/campgrounds/:id/comments/new", (req, res) =>{
     
 });
 
-app.post("/campgrounds/:id/comments", (req, res) => {
+app.post("/campgrounds/:id/comments", isLoggedIn, (req, res) => {
    //look up campground by id
    Campground.findById(req.params.id, (err, campground) =>{
      if(err){
@@ -112,6 +132,56 @@ app.post("/campgrounds/:id/comments", (req, res) => {
    //return to campground show page
 });
 
+//==============
+//AUTH ROUTES
+///
+
+//SHOW REGISTERATION PAGE
+app.get('/register', (req, res) =>{
+    res.render("register");
+})
+
+//HNDLE SIGN UP INFO FROM FORM
+
+app.post('/register', (req,res) =>{
+    var newUser = new User({username: req.body.username});
+    User.register(newUser, req.body.password, (err, user) =>{
+        if(err){
+            console.log(err)
+            return res.render('/register');
+        } passport.authenticate("local")(req, res, ()=>{
+            res.redirect("/campgrounds");
+        })
+    } )
+})
+
+//show login form
+
+app.get('/login', (req,res)=>{
+    res.render('login');
+});
+
+//HANDLING LOGIN LOGIC
+app.post('/login', passport.authenticate("local", 
+{
+    successRedirect: "/campgrounds",
+    failureRedirect: "/login"    
+    }),(req, res) => {
+    res.send("Login logic happens here");
+});
+
+//LOGOUT LOGIC ROUTE
+app.get("/logout", (req, res) => {
+    req.logout();
+    res.redirect('/campgrounds');
+})
+
+function isLoggedIn (req, res, next){
+    if(req.isAuthenticated()){
+        return next();
+    }
+    res.redirect("/login");
+}
 
 //serving up the server
 app.listen(process.env.PORT, process.env.IT, () => {
